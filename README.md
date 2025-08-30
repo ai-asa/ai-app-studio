@@ -1,1 +1,1 @@
-# ai-studio
+# ai-app-studio
