@@ -68,7 +68,7 @@ tasks:
 
 1. `Bash: busctl spawn --task T001 --frame frames/impl/CLAUDE.md --goal "Create RESTful API endpoints for user management"`
 2. `Bash: busctl spawn --task T002 --frame frames/impl/CLAUDE.md --goal "Create React components for user interface"`
-3. 各タスクのwork/ディレクトリにtask.jsonを作成（詳細指示用）
+3. 必要に応じて初期インストラクションを送信
 4. `Bash: busctl post --from pmai --type result --task ALL --data '{"summary": "2 tasks spawned successfully", "task_count": 2}'`
 
 ## 注意事項
@@ -77,4 +77,4 @@ tasks:
 - `$TARGET_REPO/requirements.yml`が存在しない場合は、エラーメッセージを表示して停止する
 - 各子エージェントは独立して動作し、相互に干渉しない
 - tmux上で各エージェントの動作が可視化される
-- 作業ディレクトリはTARGET_REPO内にサブディレクトリとして作成される（<TASK_ID>）
+- 作業ディレクトリ（worktree）はTARGET_REPOの親ディレクトリに並列に作成される（例: `my-project-T001`）

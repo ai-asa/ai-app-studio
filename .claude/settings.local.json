@@ -101,7 +101,12 @@
       "Bash(touch:*)",
       "Bash(python tests/e2e/test_target_repo.py)",
       "Bash(git worktree:*)",
-      "Bash(python -m pytest tests/unit/test_busd_parallel_worktree.py -v)"
+      "Bash(python -m pytest tests/unit/test_busd_parallel_worktree.py -v)",
+      "Bash(git init:*)",
+      "Bash(git rm:*)",
+      "Bash(python -m pytest tests/unit/test_busctl.py -xvs)",
+      "Bash(python -m pytest tests/unit/test_busd_worktree.py -v)",
+      "Bash(git pull:*)"
     ],
     "deny": []
   }

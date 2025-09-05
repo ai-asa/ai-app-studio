@@ -42,11 +42,15 @@ def main():
         # Import and test ensure_worktree
         import sys
         sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+        import bin.busd as busd_module
         from bin.busd import ensure_worktree
+        
+        # Set TARGET_REPO in the module
+        busd_module.TARGET_REPO = test_repo
         
         # Test 1: Create worktree
         print("\nTest 1: Creating worktree for task T001")
-        ensure_worktree("T001", "work/T001", "feat/T001")
+        worktree_path = ensure_worktree("T001", "feat/T001")
         
         # Verify branch was created
         result = run_cmd("git branch --list feat/T001", cwd=test_repo)
@@ -57,9 +61,8 @@ def main():
             print(f"Branches: {result.stdout}")
         
         # Verify worktree was created
-        worktree_path = work_dir / "work" / "T001"
         if worktree_path.exists() and (worktree_path / ".git").exists():
-            print("✓ Worktree created at .ai-app-studio/work/T001")
+            print(f"✓ Worktree created at parallel directory: {worktree_path}")
         else:
             print("✗ Worktree not created properly")
         

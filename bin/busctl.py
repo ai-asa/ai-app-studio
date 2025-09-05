@@ -6,7 +6,7 @@ This tool safely handles JSON encoding/decoding to avoid escape issues
 that occur with the bash version when handling special characters.
 
 Usage:
-    busctl spawn --task T001 --frame frames/impl/CLAUDE.md --goal "Create hello.txt"
+    busctl spawn --task T001 --cwd work/T001 --frame frames/impl/CLAUDE.md --goal "Create hello.txt"
     busctl send --to impl:T001 --type instruct --data '{"text": "Read task.json"}'
     busctl post --from impl:T001 --type log --task T001 --data '{"msg": "Task started"}'
     busctl post --from impl:T001 --type result --task T001 --data '{"is_error": false, "summary": "Done"}'
@@ -86,6 +86,7 @@ def handle_spawn(args, root):
         "type": "spawn",
         "task_id": args.task,
         "data": {
+            "cwd": args.cwd or "",
             "frame": args.frame or "",
             "goal": args.goal or "",
             "branch": args.branch or f"feat/{args.task}"
@@ -166,7 +167,7 @@ def create_parser():
         epilog='''
 Examples:
   # Spawn a new agent task
-  %(prog)s spawn --task T001 --frame frames/impl/CLAUDE.md --goal "Create hello.txt"
+  %(prog)s spawn --task T001 --cwd work/T001 --frame frames/impl/CLAUDE.md --goal "Create hello.txt"
   
   # Send instruction to an agent
   %(prog)s send --to impl:T001 --type instruct --data '{"text": "Read task.json"}'
@@ -184,6 +185,7 @@ Examples:
     # Spawn command
     spawn_parser = subparsers.add_parser('spawn', help='Spawn a new agent')
     spawn_parser.add_argument('--task', required=True, help='Task ID')
+    spawn_parser.add_argument('--cwd', help='Working directory for the task')
     spawn_parser.add_argument('--frame', help='Frame file path')
     spawn_parser.add_argument('--goal', help='Task goal description')
     spawn_parser.add_argument('--branch', help='Git branch name (default: feat/<task>)')
@@ -206,8 +208,11 @@ Examples:
 
 def main():
     """Main entry point"""
-    # Always use current directory/.ai-app-studio - no environment variables
-    root = os.path.join(os.getcwd(), ".ai-app-studio")
+    # Check for BUSCTL_ROOT environment variable, otherwise use current directory/.ai-app-studio
+    if 'BUSCTL_ROOT' in os.environ:
+        root = os.environ['BUSCTL_ROOT']
+    else:
+        root = os.path.join(os.getcwd(), ".ai-app-studio")
     
     # Create and configure parser
     parser = create_parser()

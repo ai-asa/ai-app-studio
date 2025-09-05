@@ -106,22 +106,23 @@
 > この章のパスは“論理構成”です。実運用では、本体コード（オーケストレーター）・対象リポジトリ・作業用サイドカーの**3つのルート**を分離します（次節 4.1 参照）。
 
 ```
-target-repo/                  # TARGET_REPO（作業対象リポジトリ）
-  README.md                   # 既存のプロジェクトファイル
-  requirements.yml            # AIタスクの要件定義
-  T001/                       # worktree（feat/T001ブランチ）
-  T002/                       # worktree（feat/T002ブランチ）
-  .ai-app-studio/            # AI App Studio管理ディレクトリ
-    mbox/
-      bus/in/                # 親→bus への spawn 等
-      pmai/in/               # 子→親（post）受け口
-      impl-T001/in/          # 親→子（send）受け口（動的に増える）
-    logs/
-      raw/T001.raw           # 子 pane の生ログ（pipe-pane ミラー）
-      bus.jsonl              # 集約イベント
-    state/
-      tasks.json             # [{id, status}]
-      panes.json             # pane管理情報
+workspace/                    # 作業ディレクトリ（親ディレクトリ）
+├── target-repo/              # TARGET_REPO（作業対象リポジトリ）
+│   ├── README.md             # 既存のプロジェクトファイル
+│   ├── requirements.yml      # AIタスクの要件定義
+│   └── .ai-app-studio/       # AI App Studio管理ディレクトリ
+│       ├── mbox/
+│       │   ├── bus/in/       # 親→bus への spawn 等
+│       │   ├── pmai/in/      # 子→親（post）受け口
+│       │   └── impl-T001/in/ # 親→子（send）受け口（動的に増える）
+│       ├── logs/
+│       │   ├── raw/T001.raw  # 子 pane の生ログ（pipe-pane ミラー）
+│       │   └── bus.jsonl     # 集約イベント
+│       └── state/
+│           ├── tasks.json    # [{id, status}]
+│           └── panes.json    # pane管理情報
+├── target-repo-T001/         # worktree（feat/T001ブランチ）並列配置
+└── target-repo-T002/         # worktree（feat/T002ブランチ）並列配置
 
 ai-app-studio/               # オーケストレーター本体（別の場所）
   bin/
@@ -132,14 +133,14 @@ ai-app-studio/               # オーケストレーター本体（別の場所�
     impl/CLAUDE.md           # 子エージェント用フレーム
 ```
 
-### 4.1 物理配置（シンプルな2層構造）
+### 4.1 物理配置（並列ディレクトリ構造）
 
-**結論:** *worktree は「対象リポジトリ」内にサブディレクトリとして作成し、管理ファイルは `.ai-app-studio` 配下に集約*します。
+**結論:** *worktree は「対象リポジトリ」の親ディレクトリに並列に作成し、管理ファイルは `.ai-app-studio` 配下に集約*します。
 
 * **AI_APP_STUDIO_HOME**: オーケストレーターのコード配置（例: `~/tools/ai-app-studio`）
-* **TARGET_REPO**: 作業対象リポジトリ（例: `/path/to/my-project`）
+* **TARGET_REPO**: 作業対象リポジトリ（例: `/workspace/my-project`）
 
-  * `T001/`, `T002/` などの worktree は **TARGET_REPO** の直下に作成
+  * `my-project-T001/`, `my-project-T002/` などの worktree は **TARGET_REPOの親ディレクトリ** に並列作成
   * `logs/`, `state/`, `mbox/` は **TARGET_REPO/.ai-app-studio** の下に配置
 
 **spawn 時の作成例（実コマンド）**
@@ -152,14 +153,17 @@ TASK=T001
 git show-ref --verify --quiet refs/heads/feat/$TASK || \
   git branch feat/$TASK main
 
-# worktree を TARGET_REPO 内のサブディレクトリとして作成
-git worktree add "$TASK" "feat/$TASK"
+# worktree を TARGET_REPO の親ディレクトリに並列作成
+# 例: /workspace/my-project → /workspace/my-project-T001
+PARENT_DIR=$(dirname "$(pwd)")
+REPO_NAME=$(basename "$(pwd)")
+git worktree add "$PARENT_DIR/$REPO_NAME-$TASK" "feat/$TASK"
 
 # 確認
 git worktree list
 ```
 
-> `worktree list` に **TARGET\_REPO の本体パス**と**TARGET\_REPO/T001** が表示されます。**編集の実体は TARGET\_REPO 内のサブディレクトリ**で、**Git 的には feat/T001 ブランチ**です。
+> `worktree list` に **TARGET\_REPO の本体パス**と**親ディレクトリの並列worktree** が表示されます。**編集の実体は TARGET\_REPO の外部の独立したディレクトリ**で、**Git 的には feat/T001 ブランチ**です。
 
 **起動方法**
 

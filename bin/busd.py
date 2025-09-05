@@ -32,6 +32,13 @@ print(f"busd starting with TARGET_REPO: {TARGET_REPO}")
 # AI App Studioのルートディレクトリ
 AI_APP_STUDIO_ROOT = Path(__file__).parent.parent
 
+# タイミング関連の定数
+POLLING_INTERVAL = 0.5  # メールボックスのポーリング間隔（秒）
+TMUX_OPERATION_DELAY = 0.1  # tmux操作後の待機時間（秒）
+CLAUDE_STARTUP_DELAY = 5  # Claude Code起動待機時間（秒）
+TEXT_PREVIEW_LENGTH = 50  # テキストプレビューの最大文字数
+MS_PER_SECOND = 1000  # ミリ秒変換係数
+
 # 作業ディレクトリは TARGET_REPO/.ai-app-studio に設定
 if os.environ.get("ROOT"):
     # テスト環境などでROOTが明示的に設定されている場合はそれを使用
@@ -132,7 +139,7 @@ def ensure_session():
         cmd = f"tmux new-session -d -s {TMUX_SESSION} -n TEMP 'bash'"
         if sh(cmd, check=False) is not None:
             print(f"Created tmux session: {TMUX_SESSION}")
-            time.sleep(0.1)  # セッション作成を待つ
+            time.sleep(TMUX_OPERATION_DELAY)  # セッション作成を待つ
     
     # MAINウィンドウのレイアウトを確保
     ensure_main_window_layout()
@@ -142,15 +149,107 @@ def ensure_session():
 
 
 def get_worktree_path(task_id):
-    """サブディレクトリ方式のworktreeパスを返す"""
-    # TARGET_REPO内にサブディレクトリとしてworktreeを作成
-    # 注: グローバル変数のTARGET_REPOを使用（環境変数は使わない）
-    worktree_path = TARGET_REPO / task_id
+    """並列ディレクトリ方式のworktreeパスを返す"""
+    # TARGET_REPOの親ディレクトリに、リポジトリ名-タスクIDの形式でworktreeを作成
+    # 例: /workspace/my-project → /workspace/my-project-T001
+    parent_dir = TARGET_REPO.parent
+    repo_name = TARGET_REPO.name
+    worktree_path = parent_dir / f"{repo_name}-{task_id}"
     return worktree_path
 
 
+def is_git_repository(repo_path):
+    """指定されたパスがGitリポジトリかどうかをチェック"""
+    try:
+        sh(f"git -C {shlex.quote(str(repo_path))} rev-parse --git-dir")
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def get_current_branch(repo_path):
+    """現在のブランチを取得"""
+    current_branch = sh(f"git -C {shlex.quote(str(repo_path))} branch --show-current", check=False)
+    
+    if not current_branch:
+        # デフォルトブランチを取得（HEADが指すブランチ）
+        try:
+            current_branch = sh(f"git -C {shlex.quote(str(repo_path))} symbolic-ref --short HEAD")
+        except subprocess.CalledProcessError:
+            # HEADがデタッチド状態の場合、最初のブランチを使用
+            branches = sh(f"git -C {shlex.quote(str(repo_path))} branch --format='%(refname:short)'", check=False)
+            if branches:
+                current_branch = branches.split('\n')[0].strip()
+            else:
+                return None
+    
+    return current_branch
+
+
+def create_initial_commit(repo_path):
+    """リポジトリに初期コミットを作成"""
+    # git設定の確認（コミットに必要）
+    try:
+        sh(f"git -C {shlex.quote(str(repo_path))} config user.name", check=True)
+    except subprocess.CalledProcessError:
+        # git設定がない場合はデフォルト値を設定
+        sh(f"git -C {shlex.quote(str(repo_path))} config user.name 'AI App Studio'")
+        sh(f"git -C {shlex.quote(str(repo_path))} config user.email 'ai-app-studio@localhost'")
+        print("Set default git config for initial commit")
+    
+    # .gitignoreファイルを作成
+    gitignore_path = Path(repo_path) / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_content = "# AI App Studio\n.ai-app-studio/\n*.pyc\n__pycache__/\n.DS_Store\n"
+        gitignore_path.write_text(gitignore_content)
+        sh(f"git -C {shlex.quote(str(repo_path))} add .gitignore")
+    
+    # 初期コミット
+    sh(f"git -C {shlex.quote(str(repo_path))} commit -m 'Initial commit' --allow-empty")
+    print("Created initial commit")
+
+
+def branch_exists(repo_path, branch):
+    """指定されたブランチが存在するかチェック"""
+    try:
+        sh(f"git -C {shlex.quote(str(repo_path))} show-ref --verify --quiet refs/heads/{branch}")
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def create_branch_if_needed(repo_path, branch, base_branch):
+    """必要に応じてブランチを作成"""
+    if not branch_exists(repo_path, branch):
+        # ベースブランチがコミットを持っているか確認
+        try:
+            sh(f"git -C {shlex.quote(str(repo_path))} rev-parse {base_branch}")
+            # ブランチ作成
+            sh(f"git -C {shlex.quote(str(repo_path))} branch {branch} {base_branch}")
+            print(f"Created git branch: {branch} (from {base_branch})")
+        except subprocess.CalledProcessError:
+            # リポジトリが空の場合、初期コミットを作成
+            print(f"Repository has no commits yet. Creating initial commit...")
+            create_initial_commit(repo_path)
+            # ブランチ作成を再試行
+            sh(f"git -C {shlex.quote(str(repo_path))} branch {branch} {base_branch}")
+            print(f"Created git branch: {branch} (from {base_branch})")
+
+
+def setup_worktree(repo_path, worktree_path, branch):
+    """Worktreeをセットアップ"""
+    try:
+        sh(f"git -C {shlex.quote(str(repo_path))} worktree add {shlex.quote(str(worktree_path))} {branch}")
+        print(f"Created worktree: {worktree_path}")
+    except subprocess.CalledProcessError as e:
+        # worktreeが作成できない場合は通常のディレクトリを作成
+        print(f"Failed to create worktree: {e.stderr}")
+        worktree_path.mkdir(parents=True, exist_ok=True)
+        print(f"Created directory: {worktree_path}")
+
+
 def ensure_worktree(task_id, branch):
-    """git worktreeが存在することを確認（サブディレクトリ方式）"""
+    """git worktreeが存在することを確認（並列ディレクトリ方式）"""
     worktree_path = get_worktree_path(task_id)
     
     print(f"DEBUG: ensure_worktree called for task_id={task_id}, branch={branch}")
@@ -159,92 +258,29 @@ def ensure_worktree(task_id, branch):
     if worktree_path.exists():
         return worktree_path  # すでに存在
     
-    # TARGET_REPOを使用（グローバル変数）
-    target_repo = str(TARGET_REPO)
-    
     # TARGET_REPOがgitリポジトリかチェック
-    try:
-        sh(f"git -C {shlex.quote(target_repo)} rev-parse --git-dir")
-        is_git_repo = True
-    except subprocess.CalledProcessError:
-        is_git_repo = False
-    
-    if is_git_repo:
+    if is_git_repository(TARGET_REPO):
         # 現在のブランチを取得
-        current_branch = sh(f"git -C {shlex.quote(target_repo)} branch --show-current", check=False)
+        current_branch = get_current_branch(TARGET_REPO)
         
         if not current_branch:
-            # デフォルトブランチを取得（HEADが指すブランチ）
-            try:
-                current_branch = sh(f"git -C {shlex.quote(target_repo)} symbolic-ref --short HEAD")
-            except subprocess.CalledProcessError:
-                # HEADがデタッチド状態の場合、最初のブランチを使用
-                branches = sh(f"git -C {shlex.quote(target_repo)} branch --format='%(refname:short)'", check=False)
-                if branches:
-                    current_branch = branches.split('\n')[0].strip()
-                else:
-                    # ブランチが全く存在しない場合はエラー
-                    print(f"Error: No branches found in {target_repo}")
-                    print("Please make at least one commit in the repository first.")
-                    worktree_path.mkdir(parents=True, exist_ok=True)
-                    print(f"Created directory instead: {worktree_path}")
-                    return worktree_path
-        
-        # ブランチの存在確認（show-refは存在する場合0を返す）
-        try:
-            sh(f"git -C {shlex.quote(target_repo)} show-ref --verify --quiet refs/heads/{branch}")
-            branch_exists = True
-        except subprocess.CalledProcessError:
-            branch_exists = False
-        
-        if not branch_exists:
-            # 現在のブランチがコミットを持っているか確認
-            try:
-                sh(f"git -C {shlex.quote(target_repo)} rev-parse {current_branch}")
-                # ブランチ作成（現在のブランチから）
-                sh(f"git -C {shlex.quote(target_repo)} branch {branch} {current_branch}")
-                print(f"Created git branch: {branch} (from {current_branch})")
-            except subprocess.CalledProcessError:
-                # リポジトリが空の場合、初期コミットを作成
-                print(f"Repository has no commits yet. Creating initial commit...")
-                
-                # git設定の確認（コミットに必要）
-                try:
-                    sh(f"git -C {shlex.quote(target_repo)} config user.name", check=True)
-                except subprocess.CalledProcessError:
-                    # git設定がない場合はデフォルト値を設定
-                    sh(f"git -C {shlex.quote(target_repo)} config user.name 'AI App Studio'")
-                    sh(f"git -C {shlex.quote(target_repo)} config user.email 'ai-app-studio@localhost'")
-                    print("Set default git config for initial commit")
-                
-                # .gitignoreファイルを作成
-                gitignore_path = Path(target_repo) / ".gitignore"
-                if not gitignore_path.exists():
-                    gitignore_content = "# AI App Studio\n.ai-app-studio/\n*.pyc\n__pycache__/\n.DS_Store\n"
-                    gitignore_path.write_text(gitignore_content)
-                    sh(f"git -C {shlex.quote(target_repo)} add .gitignore")
-                
-                # 初期コミット
-                sh(f"git -C {shlex.quote(target_repo)} commit -m 'Initial commit' --allow-empty")
-                print(f"Created initial commit on branch '{current_branch}'")
-                
-                # ブランチ作成を再試行
-                sh(f"git -C {shlex.quote(target_repo)} branch {branch} {current_branch}")
-                print(f"Created git branch: {branch} (from {current_branch})")
-        
-        # worktree追加（サブディレクトリとして作成）
-        try:
-            sh(f"git -C {shlex.quote(target_repo)} worktree add {shlex.quote(str(worktree_path))} {branch}")
-            print(f"Created worktree: {worktree_path}")
-        except subprocess.CalledProcessError as e:
-            # worktreeが作成できない場合は通常のディレクトリを作成
-            print(f"Failed to create worktree: {e.stderr}")
+            # ブランチが全く存在しない場合はエラー
+            print(f"Error: No branches found in {TARGET_REPO}")
+            print("Please make at least one commit in the repository first.")
             worktree_path.mkdir(parents=True, exist_ok=True)
-            print(f"Created directory: {worktree_path}")
+            print(f"Created directory instead: {worktree_path}")
+            return worktree_path
+        
+        # 必要に応じてブランチを作成
+        create_branch_if_needed(TARGET_REPO, branch, current_branch)
+        
+        # worktreeをセットアップ
+        setup_worktree(TARGET_REPO, worktree_path, branch)
     else:
         # gitリポジトリでない場合は通常のディレクトリを作成
+        print(f"Note: {TARGET_REPO} is not a git repository")
         worktree_path.mkdir(parents=True, exist_ok=True)
-        print(f"Created directory (non-git): {worktree_path}")
+        print(f"Created directory: {worktree_path}")
     
     return worktree_path
 
@@ -266,7 +302,7 @@ def ensure_main_window_layout():
         else:
             # ウィンドウがない場合は新規作成
             sh(f"tmux new-window -t {TMUX_SESSION} -n MAIN 'bash'")
-        time.sleep(0.1)
+        time.sleep(TMUX_OPERATION_DELAY)
         
         # 左右に分割 - オプションなしで実行（互換性向上）
         sh(f"tmux split-window -h -t {TMUX_SESSION}:MAIN")
@@ -311,7 +347,7 @@ def get_right_pane_for_child(child_count):
                     print(f"WARNING: No space for new pane, maximum panes reached")
                     return None
                 raise
-            time.sleep(0.1)
+            time.sleep(TMUX_OPERATION_DELAY)
             # 新しく作られたペインのIDを取得
             new_panes = sh(f"tmux list-panes -t {TMUX_SESSION}:MAIN -F '#{{pane_index}}'")
             if new_panes:
@@ -324,21 +360,11 @@ def get_right_pane_for_child(child_count):
 # 子エージェントのカウント（グローバル） - 右側ペインの動的配置に使用
 child_count = 0
 
-def spawn_child(task_id, worktree_path, frame=None, goal=None):
-    """子Claude Codeをtmux paneで起動（分割表示）"""
+
+def _determine_target_pane(task_id):
+    """タスクIDに基づいて対象ペインを決定"""
     global child_count
     
-    print(f"DEBUG: Spawning child for task {task_id}, worktree: {worktree_path}")
-    
-    # worktreeディレクトリが存在することを確認
-    if not worktree_path.exists():
-        worktree_path.mkdir(parents=True, exist_ok=True)
-        print(f"DEBUG: Created directory {worktree_path}")
-    
-    # メインウィンドウのレイアウトを確保
-    ensure_main_window_layout()
-    
-    # タスクIDによってペイン配置を決定
     if task_id == "PMAI":
         # 親エージェントは左上ペインに配置
         target_pane = f"{TMUX_SESSION}:MAIN.{PANE_PMAI}"
@@ -353,56 +379,47 @@ def spawn_child(task_id, worktree_path, frame=None, goal=None):
         print(f"ERROR: Could not find target pane for {task_id} - maximum panes may have been reached")
         return None
     
-    # コマンドを実行（作業ディレクトリを明確に設定）
-    # すべてのエージェントでAI App Studioのbinディレクトリが必要
+    return target_pane
+
+
+def _execute_in_pane(target_pane, worktree_path, task_id, goal=None):
+    """対象ペインでコマンドを実行してペインIDを返す"""
     ai_app_studio_bin = str(AI_APP_STUDIO_ROOT / "bin")
     
-    # PMAIの場合、busctlコマンドのためのPATH設定を追加
-    if task_id == "PMAI":
-        # ホームディレクトリのbinも追加（claudeコマンドのため）
-        # TARGET_REPOも設定（PMAIがrequirements.ymlを見つけるため）
-        cmd = f"cd {shlex.quote(str(worktree_path))} && export PATH='$HOME/bin:$HOME/.local/bin:{ai_app_studio_bin}:$PATH' && export ROOT='{str(ROOT)}' && export TARGET_REPO='{str(TARGET_REPO)}' && {CLAUDE_CMD}"
-    else:
-        cmd = f"cd {shlex.quote(str(worktree_path))} && export PATH='$HOME/bin:$HOME/.local/bin:{ai_app_studio_bin}:$PATH' && {CLAUDE_CMD}"
-    
     try:
-        # デバッグ: 送信するコマンドを確認
-        print(f"DEBUG: About to send command: {cmd}")
+        print(f"DEBUG: Setting up pane {target_pane}")
         
-        # コマンドを段階的に送信
-        # 1. まず作業ディレクトリに移動
+        # 1. 作業ディレクトリに移動
         sh(f"tmux send-keys -t {target_pane} 'cd {shlex.quote(str(worktree_path))}' Enter")
-        time.sleep(0.5)
+        time.sleep(POLLING_INTERVAL)
         
         # 2. 環境変数を設定
-        # すべてのエージェントにPATHとROOTを設定
         sh(f"tmux send-keys -t {target_pane} 'export PATH=\"{ai_app_studio_bin}:$PATH\"' Enter")
         sh(f"tmux send-keys -t {target_pane} 'export ROOT=\"{str(ROOT)}\"' Enter")
         sh(f"tmux send-keys -t {target_pane} 'export TASK_ID=\"{task_id}\"' Enter")
         if goal:
             sh(f"tmux send-keys -t {target_pane} 'export TASK_GOAL=\"{goal}\"' Enter")
-        time.sleep(0.5)
+        if task_id == "PMAI":
+            sh(f"tmux send-keys -t {target_pane} 'export TARGET_REPO=\"{str(TARGET_REPO)}\"' Enter")
+        time.sleep(POLLING_INTERVAL)
         
         # 3. Claudeを起動
         sh(f"tmux send-keys -t {target_pane} '{CLAUDE_CMD}' Enter")
         
         print(f"DEBUG: Commands sent to pane {target_pane}")
         
-        # 特定のペインのpane IDを取得（%形式）
-        # display-messageを使って正確に取得
+        # 実際のペインIDを取得
         pane = sh(f"tmux display-message -p -t {target_pane} -F '#{{pane_id}}'")
+        return pane
         
     except subprocess.CalledProcessError as e:
         print(f"ERROR: Failed to spawn in pane: {e}")
         print(f"ERROR stderr: {e.stderr}")
         raise
-    
-    
-    # paneが取得できたかチェック
-    if not pane:
-        raise RuntimeError(f"Failed to create tmux pane for task {task_id}")
-    
-    # 出力をミラー
+
+
+def _setup_pane_logging(task_id, pane):
+    """ペインの出力ログを設定"""
     raw_log = LOGS / "raw" / f"{task_id}.raw"
     sh(f"tmux pipe-pane -o -t {pane} " +
        f"'stdbuf -oL -eL tee -a {shlex.quote(str(raw_log))}'")
@@ -410,24 +427,60 @@ def spawn_child(task_id, worktree_path, frame=None, goal=None):
     # pane_mapを更新
     pane_map[task_id] = pane
     save_pane_map()
-    
     print(f"Spawned child {task_id} in pane {pane}")
+
+
+def _send_initial_message(task_id, pane, frame=None, goal=None):
+    """起動したエージェントに初期指示を送信"""
+    # Claude Codeの起動を待つ
+    time.sleep(CLAUDE_STARTUP_DELAY)
     
-    # 初期メッセージを送信（Claude Codeが起動するのを待つ）
-    time.sleep(5)  # より長い待機時間
-    
-    # 親エージェント用の初期指示
+    # 親エージェントの指示
     if task_id == "PMAI" and frame and "pmai" in frame:
-        init_message = f"Read {frame} and follow the instructions to act as the Parent Agent. Process $TARGET_REPO/requirements.yml and spawn tasks using busctl commands."
+        init_message = (f"Read {frame} and follow the instructions to act as the Parent Agent. "
+                       f"Process $TARGET_REPO/requirements.yml and spawn tasks using busctl commands.")
         sh(f"tmux send-keys -t {pane} -l {shlex.quote(init_message)}")
         sh(f"tmux send-keys -t {pane} Enter")
         print(f"Sent initial instructions to parent agent")
-    # 子エージェント用の初期指示
+    
+    # 子エージェントの指示
     elif frame and "impl" in frame and goal:
-        init_message = f"You are task {task_id}. Your goal: {goal}. Read {frame} for instructions on reporting progress with busctl post commands."
+        init_message = (f"You are task {task_id}. Your goal: {goal}. "
+                       f"Read {frame} for instructions on reporting progress with busctl post commands.")
         sh(f"tmux send-keys -t {pane} -l {shlex.quote(init_message)}")
         sh(f"tmux send-keys -t {pane} Enter")
         print(f"Sent initial instructions to child agent {task_id}")
+
+
+def spawn_child(task_id, worktree_path, frame=None, goal=None):
+    """子Claude Codeをtmux paneで起動（分割表示）"""
+    print(f"DEBUG: Spawning child for task {task_id}, worktree: {worktree_path}")
+    
+    # worktreeディレクトリが存在することを確認
+    if not worktree_path.exists():
+        worktree_path.mkdir(parents=True, exist_ok=True)
+        print(f"DEBUG: Created directory {worktree_path}")
+    
+    # メインウィンドウレイアウトを確保
+    ensure_main_window_layout()
+    
+    # 1. ターゲットペインを決定
+    target_pane = _determine_target_pane(task_id)
+    if not target_pane:
+        return None
+    
+    # 2. ペインでコマンドを実行
+    pane = _execute_in_pane(target_pane, worktree_path, task_id, goal)
+    
+    # ペインが作成されたことを確認
+    if not pane:
+        raise RuntimeError(f"Failed to create tmux pane for task {task_id}")
+    
+    # 3. ロギングをセットアップ
+    _setup_pane_logging(task_id, pane)
+    
+    # 4. 初期メッセージを送信
+    _send_initial_message(task_id, pane, frame, goal)
     
     return pane
 
@@ -456,7 +509,7 @@ def handle_spawn(msg):
     tasks[task_id] = {
         "id": task_id,
         "status": "running",
-        "created_at": msg.get("ts", int(time.time() * 1000)),
+        "created_at": msg.get("ts", int(time.time() * MS_PER_SECOND)),
         "cwd": str(worktree_path),
         "branch": branch,
         "goal": goal,
@@ -491,7 +544,7 @@ def handle_send(msg):
     # tmux send-keys実行
     sh(f"tmux send-keys -t {pane} -l {shlex.quote(text)}")
     sh(f"tmux send-keys -t {pane} Enter")
-    print(f"Sent to {task_id}: {text[:50]}...")
+    print(f"Sent to {task_id}: {text[:TEXT_PREVIEW_LENGTH]}...")
 
 
 def handle_post(msg):
@@ -509,7 +562,7 @@ def handle_post(msg):
             # 結果メッセージの場合、ステータスを更新
             is_error = msg.get("data", {}).get("is_error", False)
             tasks[task_id]["status"] = "error" if is_error else "done"
-            tasks[task_id]["completed_at"] = msg.get("ts", int(time.time() * 1000))
+            tasks[task_id]["completed_at"] = msg.get("ts", int(time.time() * MS_PER_SECOND))
             if "data" in msg:
                 tasks[task_id]["result"] = msg["data"]
         
@@ -571,7 +624,7 @@ def main():
     try:
         while True:
             process_mailbox_once()
-            time.sleep(0.5)  # 500msポーリング
+            time.sleep(POLLING_INTERVAL)  # 500msポーリング
     except KeyboardInterrupt:
         print("\nShutting down...")
 
