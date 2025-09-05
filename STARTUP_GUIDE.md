@@ -72,9 +72,67 @@ chmod +x bin/busctl
 mkdir -p logs/raw state mbox/{bus,pmai}/in work
 ```
 
+### 4. GitHub認証の設定（PR作成機能を使う場合）
+```bash
+# GitHub Personal Access Token の作成
+# 1. https://github.com/settings/tokens にアクセス
+# 2. "Generate new token (classic)" をクリック
+# 3. 必要な権限を選択:
+#    - repo (Full control of private repositories)
+#    - workflow (Update GitHub Action workflows)
+# 4. トークンをコピー
+
+# .env.localファイルに設定（プロジェクトごと）
+echo "GH_TOKEN=ghp_your_token_here" > .env.local
+
+# またはグローバルに設定
+export GH_TOKEN="ghp_your_token_here"
+
+# ghコマンドでログイン（推奨）
+gh auth login
+# "GitHub.com" → "HTTPS" → "Paste an authentication token" を選択
+```
+
 ## クイックスタート
 
-最速でシステムを起動して動作確認する手順：
+### 統一ユニットシステム（新方式・推奨）
+
+最新の統一ユニットシステムでは、操作が大幅に簡素化されています：
+
+```bash
+# 1. 作業したいプロジェクトに移動
+cd /path/to/your-project
+
+# 2. 要件定義ファイルを作成
+cat > requirements.yml << 'EOF'
+project_name: "My Web App"
+version: 1.0
+tasks:
+  - name: "認証システムの実装"
+    description: "ユーザー登録、ログイン、JWT認証を実装"
+  - name: "APIサーバーの実装"
+    description: "RESTful APIを実装"
+EOF
+
+# 3. busdデーモンを起動（別ターミナル）
+python3 ~/tools/ai-app-studio/bin/busd.py
+
+# 4. ルートユニットを起動（引数なし！）
+~/tools/ai-app-studio/bin/busctl spawn
+
+# 5. tmuxで動作を確認
+tmux attach -t cc
+```
+
+これだけで、システムが自動的に：
+- requirements.ymlを読み込んでタスクを分解
+- 各タスクに対して子ユニットを生成
+- 並列でタスクを実行
+- 完了時にPRを作成（GH_TOKEN設定済みの場合）
+
+### 従来方式（手動タスク投函）
+
+手動でタスクを管理したい場合：
 
 ```bash
 # 1. tmuxセッションを開始

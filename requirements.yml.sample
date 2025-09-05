@@ -1,47 +1,70 @@
 # AI App Studio - サンプル要件定義
 # このファイルを参考に、あなたのプロジェクトでrequirements.ymlを作成してください
 
-project_name: "My Awesome Project"
+project_name: "シンプルメモアプリ"
 version: 1.0
-description: "プロジェクトの概要をここに記載"
+description: "ローカルストレージを使用したブラウザベースのメモアプリケーション"
 
-# タスクリスト
-# 各タスクは独立したgit worktreeで並列実行されます
+# プロジェクト全体の要件
+requirements:
+  - ブラウザで動作するシングルページアプリケーション（SPA）
+  - メモの作成・編集・削除・検索機能
+  - データはブラウザのlocalStorageに保存
+  - レスポンシブデザインでモバイルにも対応
+  - ダークモード対応
+
+# タスクリスト（統一ユニットシステムでは、これらは大まかなタスク分類として使用されます）
 tasks:
-  - id: T001
-    name: "プロジェクト構造の作成"
-    goal: "src/, tests/, docs/ディレクトリを作成し、基本的な.gitignoreを設置"
-    type: setup
-    priority: high
+  - name: "プロジェクト基本構造"
+    description: |
+      プロジェクトの基本的なディレクトリ構造とファイルを作成：
+      - index.html（HTML5構造）
+      - css/style.css（基本スタイル）
+      - js/app.js（メインアプリケーション）
+      - README.md（使い方の説明）
     
-  - id: T002
-    name: "READMEの作成"
-    goal: "プロジェクトの概要、使い方、ライセンス情報を含むREADME.mdを作成"
-    type: documentation
-    priority: medium
-    dependencies: []  # T001に依存しない（並列実行可能）
+  - name: "UI実装"
+    description: |
+      ユーザーインターフェースの実装：
+      - ヘッダー（タイトル、検索ボックス、ダークモード切替）
+      - メモ一覧表示エリア
+      - メモ作成・編集フォーム
+      - 削除確認ダイアログ
     
-  - id: T003
-    name: "Hello Worldの実装"
-    goal: "src/main.pyに簡単なHello Worldプログラムを実装"
-    type: implementation
-    priority: medium
-    dependencies: ["T001"]  # T001完了後に実行
+  - name: "メモ管理機能"
+    description: |
+      メモのCRUD機能実装：
+      - メモデータ構造（id、タイトル、内容、作成日時、更新日時）
+      - localStorageへの保存・読み込み
+      - 作成・編集・削除処理
+      - 一覧表示と自動更新
     
-  - id: T004
-    name: "テストの作成"
-    goal: "tests/test_main.pyにユニットテストを作成"
-    type: testing
-    priority: low
-    dependencies: ["T003"]  # T003完了後に実行
+  - name: "検索機能"
+    description: |
+      メモの検索・フィルタリング：
+      - タイトルと内容からの検索
+      - リアルタイム検索
+      - 検索結果のハイライト
+      - 検索クリア機能
+    
+  - name: "UX改善"
+    description: |
+      ユーザビリティの向上：
+      - アニメーション効果
+      - エラー通知
+      - キーボードショートカット
+      - 並び替え機能
 
-# オプション設定
-options:
-  # 各タスクのタイムアウト（秒）
-  task_timeout: 600
-  
-  # 並列実行の最大数
-  max_parallel: 3
-  
-  # エラー時の動作
-  on_error: "continue"  # continue | stop | retry
+# 技術スタック
+tech_stack:
+  - HTML5
+  - CSS3（Flexbox、Grid、CSS変数）
+  - Vanilla JavaScript（ES6+）
+  - localStorage API
+
+# 開発の注意事項
+notes:
+  - 外部ライブラリは使用しない
+  - モダンブラウザ対応（Chrome、Firefox、Safari、Edge）
+  - コードの可読性を重視
+  - セマンティックHTMLを使用

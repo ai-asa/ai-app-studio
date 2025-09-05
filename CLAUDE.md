@@ -55,16 +55,21 @@ describe('ComponentName', () => {
 });
 ```
 
-### 4. コミット・プッシュ・PR作成
+### 4. コミット・プッシュ・PR作成（統一ユニットモード）
 
-**GitHub操作の手順：**
-1. ブランチ作成: `git checkout -b ブランチ名`
-2. 変更をステージング: `git add .` -> 基本的に変更内容は全てコミットするため、`.`でOK
-3. コミット: `git commit -m "コミットメッセージ"`
-4. リモートURL設定: `git remote set-url origin https://ai-asa:$GH_TOKEN@github.com/ai-asa/ai-app-studio.git`
-5. プッシュ: `git push -u origin ブランチ名`
-6. PR作成: `export GH_TOKEN="..." && gh pr create --base main --title "..." --body "..."`
-7. セキュリティのため元に戻す: `git remote set-url origin https://github.com/ai-asa/ai-app-studio.git`
+**統一ユニットでの手順：**
+1. ブランチはbusdが自動作成（`feat/$UNIT_ID`形式）
+2. 変更をステージング: `git add -A`
+3. コミット: `git commit -m "feat($UNIT_ID): $TASK_GOAL"`
+4. PR作成: `gh pr create --base "$PARENT_BRANCH" --title "[$UNIT_ID] $TASK_GOAL" --body "..."`
+   - 親がいる場合: `--base feat/$PARENT_UNIT_ID`
+   - ルートの場合: `--base main`
+5. 完了報告: `busctl post --from unit:$UNIT_ID --type result --task $UNIT_ID --data '{"is_error": false, ...}'`
+
+**手動でGitHub操作する場合：**
+1. リモートURL設定: `git remote set-url origin https://ai-asa:$GH_TOKEN@github.com/ai-asa/ai-app-studio.git`
+2. プッシュ: `git push -u origin ブランチ名`
+3. セキュリティのため元に戻す: `git remote set-url origin https://github.com/ai-asa/ai-app-studio.git`
 
 **注意：** GH_TOKENは`.env.local`に保存されています。
 

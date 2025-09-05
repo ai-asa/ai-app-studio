@@ -106,7 +106,17 @@
       "Bash(git rm:*)",
       "Bash(python -m pytest tests/unit/test_busctl.py -xvs)",
       "Bash(python -m pytest tests/unit/test_busd_worktree.py -v)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(python -m pytest tests/unit/test_unit_frame.py -v)",
+      "Bash(ROOT=/tmp/test_root python3 /mnt/c/Users/pirok/Desktop/repo/tools/ai-app-studio/bin/busctl.py spawn:*)",
+      "Bash(python tests/unit/test_busd_simplified.py)",
+      "Bash(python tests/unit/test_busctl_simplified.py)",
+      "Bash(python -m pytest tests/unit/test_busd_children_status.py -v)",
+      "Bash(python -m pytest tests/unit/test_busd_frame_selection.py -v)",
+      "Bash(for test in tests/unit/test_busd*.py)",
+      "Bash(do echo \"=== Running $test ===\")",
+      "Bash(done)",
+      "Bash(python -m pytest tests/unit/test_busctl_from_breakdown.py -v)"
     ],
     "deny": []
   }

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "root",
+    "status": "running",
+    "created_at": 1234567890,
+    "cwd": "/tmp/tmpzrgofhpr/test-project-root",
+    "worktree_path": "/tmp/tmpzrgofhpr/test-project-root",
+    "branch": "feat/root",
+    "goal": "",
+    "frame": "frames/unit/CLAUDE.md",
+    "env": {
+      "UNIT_ID": "root",
+      "TARGET_REPO": "/tmp/tmpzrgofhpr/test-project"
+    }
+  }
+]

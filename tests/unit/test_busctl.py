@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import subprocess
+import yaml
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -39,17 +40,30 @@ class TestBusctl(unittest.TestCase):
     
     def test_spawn_command_basic(self):
         """Test spawn command with basic parameters"""
-        # Run busctl spawn command
-        cmd = [
-            sys.executable, "bin/busctl.py", "spawn",
-            "--task", "T001",
-            "--cwd", "work/T001",
-            "--frame", "frames/impl/CLAUDE.md",
-            "--goal", "Create hello.txt"
-        ]
+        # Create a test project directory
+        project_dir = Path(self.test_dir) / "test-project"
+        project_dir.mkdir()
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0)
+        # Create requirements.yml
+        requirements = {
+            "project": "Test Project",
+            "description": "A test project",
+            "requirements": ["Build API", "Create frontend"]
+        }
+        with open(project_dir / "requirements.yml", "w") as f:
+            yaml.dump(requirements, f)
+        
+        # Change to project directory
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+            
+            # Run busctl spawn command
+            cmd = [sys.executable, str(Path(original_cwd) / "bin" / "busctl.py"), "spawn"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+        finally:
+            os.chdir(original_cwd)
         
         # Check if message was written to mailbox
         files = list((self.mbox_dir / "bus" / "in").glob("*.json"))
@@ -59,34 +73,59 @@ class TestBusctl(unittest.TestCase):
         with open(files[0], 'r') as f:
             msg = json.load(f)
         
-        self.assertEqual(msg['from'], 'pmai')
+        self.assertEqual(msg['from'], 'root')  # root unit has no parent
         self.assertEqual(msg['to'], 'bus')
         self.assertEqual(msg['type'], 'spawn')
-        self.assertEqual(msg['task_id'], 'T001')
-        self.assertEqual(msg['data']['cwd'], 'work/T001')
-        self.assertEqual(msg['data']['frame'], 'frames/impl/CLAUDE.md')
-        self.assertEqual(msg['data']['goal'], 'Create hello.txt')
-        self.assertEqual(msg['data']['branch'], 'feat/T001')  # default
-    
-    def test_spawn_command_with_branch(self):
-        """Test spawn command with custom branch"""
-        cmd = [
-            sys.executable, "bin/busctl.py", "spawn",
-            "--task", "T002",
-            "--cwd", "work/T002",
-            "--frame", "frames/impl/CLAUDE.md",
-            "--goal", "Create index.html",
-            "--branch", "feature/custom-branch"
-        ]
+        self.assertEqual(msg['task_id'], 'root')  # auto-detected as root
+        self.assertEqual(msg['data']['cwd'], '')  # empty for busd to decide
+        self.assertEqual(msg['data']['frame'], '')  # empty for busd to decide
+        self.assertEqual(msg['data']['goal'], '')  # no goal needed
+        self.assertEqual(msg['data']['branch'], 'feat/root')  # auto-generated
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0)
+        # Verify environment variables
+        self.assertIn('env', msg['data'])
+        self.assertEqual(msg['data']['env']['UNIT_ID'], 'root')
+        self.assertEqual(msg['data']['env']['TARGET_REPO'], str(project_dir))
+    
+    def test_spawn_command_with_env(self):
+        """Test spawn command with custom environment variables"""
+        # Create a test project directory
+        project_dir = Path(self.test_dir) / "test-project-env"
+        project_dir.mkdir()
+        
+        # Create requirements.yml
+        requirements = {
+            "project": "Test Project",
+            "description": "A test project",
+            "requirements": ["Build API"]
+        }
+        with open(project_dir / "requirements.yml", "w") as f:
+            yaml.dump(requirements, f)
+        
+        # Change to project directory
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(project_dir)
+            
+            # Run busctl spawn command with env vars
+            cmd = [
+                sys.executable, str(Path(original_cwd) / "bin" / "busctl.py"), "spawn",
+                "--env", "DEBUG=true",
+                "--env", "CUSTOM_VAR=test_value"
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+        finally:
+            os.chdir(original_cwd)
         
         files = list((self.mbox_dir / "bus" / "in").glob("*.json"))
         with open(files[0], 'r') as f:
             msg = json.load(f)
         
-        self.assertEqual(msg['data']['branch'], 'feature/custom-branch')
+        # Verify custom environment variables
+        self.assertEqual(msg['data']['env']['DEBUG'], 'true')
+        self.assertEqual(msg['data']['env']['CUSTOM_VAR'], 'test_value')
+        self.assertEqual(msg['data']['env']['UNIT_ID'], 'root')  # still auto-detected
     
     def test_send_command(self):
         """Test send command"""
@@ -193,10 +232,19 @@ class TestBusctl(unittest.TestCase):
     
     def test_missing_required_arguments(self):
         """Test commands fail with missing required arguments"""
-        # spawn without --task
-        cmd = [sys.executable, "bin/busctl.py", "spawn", "--cwd", "work/T001"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
+        # spawn without requirements.yml
+        empty_dir = Path(self.test_dir) / "empty-project"
+        empty_dir.mkdir()
+        
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(empty_dir)
+            cmd = [sys.executable, str(Path(original_cwd) / "bin" / "busctl.py"), "spawn"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requirements.yml", result.stderr)
+        finally:
+            os.chdir(original_cwd)
         
         # send without --to
         cmd = [sys.executable, "bin/busctl.py", "send", "--type", "instruct"]

@@ -16,8 +16,10 @@ import time
 import glob
 import subprocess
 import shlex
+import shutil
+import yaml
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ターゲットリポジトリの決定
 # 優先順位: 1) コマンドライン引数 2) カレントディレクトリ
@@ -78,6 +80,10 @@ CLAUDE_CMD = os.environ.get("CLAUDE_CMD",
 LAYOUT_RIGHT_BASE_PANE = 2  # 右側ペインのベースインデックス
 PANE_PMAI = 0  # 左上：PMAIエージェント用
 PANE_DASHBOARD = 1  # 左下：ダッシュボード用
+
+# 通知関連の定数
+NOTIFICATION_FORMAT = "[CHILD:{child}] Status: {status}, Message: {message}"
+NOTIFICATION_DELAY = 0.1  # 連続通知時の待機時間（秒）
 
 # グローバル状態
 pane_map = {}  # task_id -> tmux pane id (e.g. 'cc:T001.0')
@@ -285,6 +291,72 @@ def ensure_worktree(task_id, branch):
     return worktree_path
 
 
+def setup_unit_files(task_id, worktree_path, env):
+    """ユニットに必要なファイルをセットアップ"""
+    parent_unit_id = env.get("PARENT_UNIT_ID")
+    
+    # 子ユニットの場合、.parent_unitファイルを作成
+    if parent_unit_id:
+        parent_unit_file = worktree_path / ".parent_unit"
+        parent_unit_file.write_text(parent_unit_id)
+        print(f"Created .parent_unit file with content: {parent_unit_id}")
+    else:
+        # ルートユニット（親なし）の場合、タスク管理ファイルを初期化
+        # task-breakdown.yml
+        task_breakdown = worktree_path / "task-breakdown.yml"
+        task_breakdown_content = f"""# Task breakdown for {task_id}
+parent_unit: {task_id}
+total_tasks: 0
+tasks: []
+"""
+        task_breakdown.write_text(task_breakdown_content)
+        print(f"Created task-breakdown.yml for parent unit {task_id}")
+        
+        # children-status.yml
+        children_status = worktree_path / "children-status.yml"
+        children_status_content = """# Children unit status tracking
+children: []
+"""
+        children_status.write_text(children_status_content)
+        print(f"Created children-status.yml for parent unit {task_id}")
+
+
+def copy_project_files(worktree_path, unit_id=None):
+    """プロジェクト設定ファイルをworktreeにコピー"""
+    # CLAUDE.mdをコピー（AI App Studioのframesディレクトリから）
+    if unit_id == "root":
+        # ルートユニットはframes/root/CLAUDE.mdを使用
+        claude_source = AI_APP_STUDIO_ROOT / "frames" / "root" / "CLAUDE.md"
+    else:
+        # その他のユニットはframes/unit/CLAUDE.mdを使用
+        claude_source = AI_APP_STUDIO_ROOT / "frames" / "unit" / "CLAUDE.md"
+    
+    if claude_source.exists():
+        shutil.copy2(claude_source, worktree_path / "CLAUDE.md")
+        print(f"Copied {claude_source.name} to worktree")
+    
+    # requirements.ymlをコピー（重要！）
+    requirements_yml = TARGET_REPO / "requirements.yml"
+    if requirements_yml.exists():
+        shutil.copy2(requirements_yml, worktree_path / "requirements.yml")
+        print(f"Copied requirements.yml to worktree")
+    else:
+        print(f"WARNING: requirements.yml not found in {TARGET_REPO}")
+    
+    # .env.localをコピー（存在する場合）
+    env_local = TARGET_REPO / ".env.local"
+    if env_local.exists():
+        shutil.copy2(env_local, worktree_path / ".env.local")
+        print(f"Copied .env.local to worktree")
+    
+    # .claudeディレクトリをコピー（存在する場合）
+    claude_dir = TARGET_REPO / ".claude"
+    if claude_dir.exists() and claude_dir.is_dir():
+        dest_claude_dir = worktree_path / ".claude"
+        shutil.copytree(claude_dir, dest_claude_dir, dirs_exist_ok=True)
+        print(f"Copied .claude directory to worktree")
+
+
 def ensure_main_window_layout():
     """メインウィンドウのレイアウトを確保"""
     # MAINウィンドウが存在するかチェック
@@ -365,10 +437,10 @@ def _determine_target_pane(task_id):
     """タスクIDに基づいて対象ペインを決定"""
     global child_count
     
-    if task_id == "PMAI":
-        # 親エージェントは左上ペインに配置
+    if task_id == "PMAI" or task_id == "root":
+        # 親エージェントとルートユニットは左上ペインに配置
         target_pane = f"{TMUX_SESSION}:MAIN.{PANE_PMAI}"
-        print(f"DEBUG: Placing PMAI in left-top pane (pane {PANE_PMAI})")
+        print(f"DEBUG: Placing {task_id} in left-top pane (pane {PANE_PMAI})")
     else:
         # 子エージェントは右側に順番に配置
         target_pane = get_right_pane_for_child(child_count)
@@ -382,12 +454,15 @@ def _determine_target_pane(task_id):
     return target_pane
 
 
-def _execute_in_pane(target_pane, worktree_path, task_id, goal=None):
+def _execute_in_pane(target_pane, worktree_path, task_id, goal=None, env=None):
     """対象ペインでコマンドを実行してペインIDを返す"""
+    if env is None:
+        env = {}
     ai_app_studio_bin = str(AI_APP_STUDIO_ROOT / "bin")
     
     try:
         print(f"DEBUG: Setting up pane {target_pane}")
+        print(f"[DEBUG] Setting BUSCTL_ROOT={str(ROOT)} for unit {task_id}")
         
         # 1. 作業ディレクトリに移動
         sh(f"tmux send-keys -t {target_pane} 'cd {shlex.quote(str(worktree_path))}' Enter")
@@ -396,14 +471,23 @@ def _execute_in_pane(target_pane, worktree_path, task_id, goal=None):
         # 2. 環境変数を設定
         sh(f"tmux send-keys -t {target_pane} 'export PATH=\"{ai_app_studio_bin}:$PATH\"' Enter")
         sh(f"tmux send-keys -t {target_pane} 'export ROOT=\"{str(ROOT)}\"' Enter")
+        sh(f"tmux send-keys -t {target_pane} 'export BUSCTL_ROOT=\"{str(ROOT)}\"' Enter")  # 重要: busctlがbusdと同じROOTを使うように
         sh(f"tmux send-keys -t {target_pane} 'export TASK_ID=\"{task_id}\"' Enter")
         if goal:
             sh(f"tmux send-keys -t {target_pane} 'export TASK_GOAL=\"{goal}\"' Enter")
         if task_id == "PMAI":
             sh(f"tmux send-keys -t {target_pane} 'export TARGET_REPO=\"{str(TARGET_REPO)}\"' Enter")
+        
+        # 3. カスタム環境変数を設定
+        for key, value in env.items():
+            # 値に特殊文字が含まれる場合に備えてエスケープ
+            escaped_value = value.replace('"', '\\"').replace('$', '\\$')
+            sh(f"tmux send-keys -t {target_pane} 'export {key}=\"{escaped_value}\"' Enter")
+            print(f"DEBUG: Set env {key}={value}")
+        
         time.sleep(POLLING_INTERVAL)
         
-        # 3. Claudeを起動
+        # 4. Claudeを起動
         sh(f"tmux send-keys -t {target_pane} '{CLAUDE_CMD}' Enter")
         
         print(f"DEBUG: Commands sent to pane {target_pane}")
@@ -425,16 +509,41 @@ def _setup_pane_logging(task_id, pane):
        f"'stdbuf -oL -eL tee -a {shlex.quote(str(raw_log))}'")
     
     # pane_mapを更新
+    print(f"[DEBUG] Updating pane_map: {task_id} -> {pane}")
     pane_map[task_id] = pane
     save_pane_map()
+    print(f"[DEBUG] pane_map after update: {pane_map}")
     print(f"Spawned child {task_id} in pane {pane}")
 
 
 def _send_initial_message(task_id, pane, frame=None, goal=None):
-    """起動したエージェントに初期指示を送信"""
+    """起動したエージェントに初期指示を送信（統一ユニット対応版）"""
+    print(f"DEBUG _send_initial_message: task_id={task_id}, pane={pane}, frame={repr(frame)}, goal={repr(goal)}")
+    
     # Claude Codeの起動を待つ
     time.sleep(CLAUDE_STARTUP_DELAY)
     
+    # frameが指定されていない場合は、CLAUDE.mdを読むよう指示
+    if not frame:
+        print(f"DEBUG: Frame is empty/None, sending initial message for unified unit system")
+        # 統一ユニットシステムの場合
+        if task_id == "root":
+            init_message = "CLAUDE.mdを読んで指示に従ってください。最初のタスクはrequirements.ymlを読んでサブタスクに分解することです。"
+        else:
+            init_message = f"あなたはユニット {task_id} です。CLAUDE.mdを読んで指示に従ってください。"
+            if goal:
+                init_message += f" タスクのゴール: {goal}"
+        
+        print(f"DEBUG: Sending message: {init_message}")
+        try:
+            sh(f"tmux send-keys -t {pane} -l {shlex.quote(init_message)}")
+            sh(f"tmux send-keys -t {pane} Enter")
+            print(f"Sent initial instructions to unit {task_id}")
+        except Exception as e:
+            print(f"ERROR sending initial message: {e}")
+        return
+    
+    # 旧システム（frameが指定されている場合）の処理
     # 親エージェントの指示
     if task_id == "PMAI" and frame and "pmai" in frame:
         init_message = (f"Read {frame} and follow the instructions to act as the Parent Agent. "
@@ -452,9 +561,13 @@ def _send_initial_message(task_id, pane, frame=None, goal=None):
         print(f"Sent initial instructions to child agent {task_id}")
 
 
-def spawn_child(task_id, worktree_path, frame=None, goal=None):
+def spawn_child(task_id, worktree_path, frame=None, goal=None, env=None):
     """子Claude Codeをtmux paneで起動（分割表示）"""
-    print(f"DEBUG: Spawning child for task {task_id}, worktree: {worktree_path}")
+    if env is None:
+        env = {}
+    print(f"[DEBUG] spawn_child START for task {task_id}, worktree: {worktree_path}")
+    print(f"[DEBUG] env contains: {env}")
+    print(f"[DEBUG] Current pane_map: {pane_map}")
     
     # worktreeディレクトリが存在することを確認
     if not worktree_path.exists():
@@ -470,7 +583,7 @@ def spawn_child(task_id, worktree_path, frame=None, goal=None):
         return None
     
     # 2. ペインでコマンドを実行
-    pane = _execute_in_pane(target_pane, worktree_path, task_id, goal)
+    pane = _execute_in_pane(target_pane, worktree_path, task_id, goal, env)
     
     # ペインが作成されたことを確認
     if not pane:
@@ -482,17 +595,21 @@ def spawn_child(task_id, worktree_path, frame=None, goal=None):
     # 4. 初期メッセージを送信
     _send_initial_message(task_id, pane, frame, goal)
     
+    print(f"[DEBUG] spawn_child COMPLETE for {task_id}, returning pane: {pane}")
     return pane
 
 
 def handle_spawn(msg):
     """spawnメッセージを処理"""
+    print(f"[DEBUG] handle_spawn called with message: {json.dumps(msg, indent=2)}")
     data = msg.get("data", {})
     task_id = msg["task_id"]
+    print(f"[DEBUG] Processing spawn for task_id: {task_id}")
     
     branch = data.get("branch", f"feat/{task_id}")
     frame = data.get("frame", "")
     goal = data.get("goal", "")
+    env = data.get("env", {})  # Extract environment variables
     
     # PMAIは特別扱い - TARGET_REPO自体で動作
     if task_id == "PMAI":
@@ -500,10 +617,27 @@ def handle_spawn(msg):
         print(f"DEBUG: PMAI will run in TARGET_REPO: {worktree_path}")
     else:
         # 子タスクはサブディレクトリのworktreeで動作
+        print(f"[DEBUG] Creating worktree for {task_id} with branch {branch}")
         worktree_path = ensure_worktree(task_id, branch)
+        print(f"[DEBUG] Worktree created at: {worktree_path}")
+    
+    # ファイルセットアップ（PMAIは除外）
+    if task_id != "PMAI":
+        setup_unit_files(task_id, worktree_path, env)
+        # envからUNIT_IDを取得、なければtask_idを使用
+        unit_id = env.get("UNIT_ID", task_id)
+        copy_project_files(worktree_path, unit_id=unit_id)
     
     # プロセス起動
-    spawn_child(task_id, worktree_path, frame, goal)
+    print(f"[DEBUG] About to spawn child process for {task_id}")
+    try:
+        pane = spawn_child(task_id, worktree_path, frame, goal, env)
+        print(f"[DEBUG] spawn_child returned pane: {pane}")
+    except Exception as e:
+        print(f"[DEBUG] Error in spawn_child: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     
     # タスク状態を記録
     tasks[task_id] = {
@@ -511,9 +645,11 @@ def handle_spawn(msg):
         "status": "running",
         "created_at": msg.get("ts", int(time.time() * MS_PER_SECOND)),
         "cwd": str(worktree_path),
+        "worktree_path": str(worktree_path),  # children-status.yml更新用
         "branch": branch,
         "goal": goal,
-        "frame": frame
+        "frame": frame,
+        "env": env  # 環境変数も保存
     }
     save_tasks()
 
@@ -547,6 +683,110 @@ def handle_send(msg):
     print(f"Sent to {task_id}: {text[:TEXT_PREVIEW_LENGTH]}...")
 
 
+def notify_parent_unit(parent_unit_id, child_unit_id, status, message):
+    """通知を親ユニットのtmuxペインに送信
+    
+    Args:
+        parent_unit_id: 親ユニットのID
+        child_unit_id: 子ユニットのID
+        status: 通知ステータス (completed, error, progress, etc.)
+        message: 通知メッセージ
+    """
+    parent_pane = pane_map.get(parent_unit_id)
+    if not parent_pane:
+        print(f"Warning: No pane found for parent unit {parent_unit_id}")
+        return
+    
+    # 通知フォーマットを使用
+    notification = NOTIFICATION_FORMAT.format(
+        child=child_unit_id,
+        status=status,
+        message=message
+    )
+    
+    # 安全な送信（-lオプションでリテラルとして送信）
+    sh(f"tmux send-keys -t {parent_pane} -l {shlex.quote(notification)}")
+    sh(f"tmux send-keys -t {parent_pane} Enter")
+    
+    time.sleep(NOTIFICATION_DELAY)  # 連続通知対策
+    print(f"Notified parent {parent_unit_id} about {child_unit_id}: {status}")
+
+
+def update_children_status(parent_unit_id, child_unit_id, status, error_message=None):
+    """親ユニットのchildren-status.ymlを更新
+    
+    Args:
+        parent_unit_id: 親ユニットのID
+        child_unit_id: 子ユニットのID
+        status: 新しいステータス (completed, error, etc.)
+        error_message: エラーメッセージ（エラーの場合）
+    """
+    # 親タスクの情報を取得
+    parent_task = tasks.get(parent_unit_id)
+    if not parent_task:
+        print(f"Warning: Parent task {parent_unit_id} not found")
+        return
+    
+    # 親のworktreeパスを取得
+    parent_worktree = parent_task.get("worktree_path")
+    if not parent_worktree:
+        # worktree_pathがない場合はcwdから推測
+        parent_cwd = parent_task.get("cwd")
+        if parent_cwd:
+            parent_worktree = parent_cwd
+        else:
+            print(f"Warning: No worktree path found for parent {parent_unit_id}")
+            return
+    
+    # children-status.ymlのパスを構築
+    children_status_path = Path(parent_worktree) / "children-status.yml"
+    
+    # ファイルが存在しない場合は初期化
+    if not children_status_path.exists():
+        children_status_data = {"children": []}
+    else:
+        # 既存のファイルを読み込み
+        try:
+            with open(children_status_path, 'r') as f:
+                children_status_data = yaml.safe_load(f) or {"children": []}
+        except Exception as e:
+            print(f"Error reading children-status.yml: {e}")
+            children_status_data = {"children": []}
+    
+    # 子ユニットの状態を更新または追加
+    children_list = children_status_data.get("children", [])
+    child_found = False
+    
+    for i, child in enumerate(children_list):
+        if child.get("unit_id") == child_unit_id:
+            # 既存のエントリを更新
+            children_list[i]["status"] = status
+            children_list[i]["completed_at"] = datetime.now(timezone.utc).isoformat()
+            if error_message and status == "error":
+                children_list[i]["error_message"] = error_message
+            child_found = True
+            break
+    
+    # 新しいエントリを追加
+    if not child_found:
+        new_child = {
+            "unit_id": child_unit_id,
+            "status": status,
+            "completed_at": datetime.now(timezone.utc).isoformat()
+        }
+        if error_message and status == "error":
+            new_child["error_message"] = error_message
+        children_list.append(new_child)
+    
+    # ファイルに書き戻し
+    try:
+        with open(children_status_path, 'w') as f:
+            yaml.dump(children_status_data, f, default_flow_style=False)
+        print(f"Updated children-status.yml for parent {parent_unit_id}: {child_unit_id} -> {status}")
+    except Exception as e:
+        print(f"Error writing children-status.yml: {e}")
+
+
 def handle_post(msg):
     """postメッセージを処理（log/result）"""
     # bus.jsonlに追記
@@ -565,6 +805,20 @@ def handle_post(msg):
             tasks[task_id]["completed_at"] = msg.get("ts", int(time.time() * MS_PER_SECOND))
             if "data" in msg:
                 tasks[task_id]["result"] = msg["data"]
+            
+            # 親ユニットへの通知
+            task_info = tasks.get(task_id, {})
+            if "env" in task_info and "PARENT_UNIT_ID" in task_info["env"]:
+                parent_id = task_info["env"]["PARENT_UNIT_ID"]
+                status = "error" if is_error else "completed"
+                summary = msg.get("data", {}).get("summary", "Task finished")
+                error_message = msg.get("data", {}).get("message") if is_error else None
+                
+                # children-status.ymlを更新
+                update_children_status(parent_id, task_id, status, error_message)
+                
+                # 親ユニットへ通知
+                notify_parent_unit(parent_id, task_id, status, summary)
         
         save_tasks()
     
@@ -577,6 +831,9 @@ def process_mailbox_once():
     for inbox_dir in MBOX.glob("*/in"):
         # JSONファイルを時刻順にソート
         json_files = sorted(inbox_dir.glob("*.json"))
+        
+        if json_files:
+            print(f"[DEBUG] Found {len(json_files)} messages in {inbox_dir}")
         
         for json_file in json_files:
             try:

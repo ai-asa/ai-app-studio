@@ -1,0 +1,43 @@
+[
+  {
+    "id": "root",
+    "status": "running",
+    "worktree_path": "/tmp/tmptbk5t0qn/test_repo-root"
+  },
+  {
+    "id": "root-api",
+    "status": "done",
+    "env": {
+      "PARENT_UNIT_ID": "root"
+    },
+    "completed_at": 1757083461085,
+    "result": {
+      "is_error": false,
+      "message": "root-api completed"
+    }
+  },
+  {
+    "id": "root-auth",
+    "status": "done",
+    "env": {
+      "PARENT_UNIT_ID": "root"
+    },
+    "completed_at": 1757083461192,
+    "result": {
+      "is_error": false,
+      "message": "root-auth completed"
+    }
+  },
+  {
+    "id": "root-frontend",
+    "status": "done",
+    "env": {
+      "PARENT_UNIT_ID": "root"
+    },
+    "completed_at": 1757083461304,
+    "result": {
+      "is_error": false,
+      "message": "root-frontend completed"
+    }
+  }
+]
