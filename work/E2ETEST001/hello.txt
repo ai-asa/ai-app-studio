@@ -1,0 +1,4 @@
+Hello, World!
+Welcome to AI App Studio!
+This is a greeting message from task T001.
+Have a wonderful day!

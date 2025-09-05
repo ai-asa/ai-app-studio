@@ -1,0 +1,63 @@
+{
+  "task_id": "T001",
+  "name": "Create API endpoints",
+  "description": "Implement RESTful API endpoints for user management",
+  "type": "implementation",
+  "priority": "high",
+  "requirements": {
+    "endpoints": [
+      {
+        "method": "GET",
+        "path": "/api/users",
+        "description": "List all users with pagination"
+      },
+      {
+        "method": "GET", 
+        "path": "/api/users/:id",
+        "description": "Get user by ID"
+      },
+      {
+        "method": "POST",
+        "path": "/api/users",
+        "description": "Create new user"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/users/:id",
+        "description": "Update user"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/users/:id",
+        "description": "Delete user"
+      }
+    ],
+    "technology": {
+      "framework": "Express.js or FastAPI",
+      "database": "PostgreSQL or SQLite",
+      "validation": "Required for all inputs",
+      "authentication": "JWT tokens"
+    },
+    "deliverables": [
+      "API implementation files",
+      "Database schema",
+      "API documentation (OpenAPI/Swagger)",
+      "Unit tests",
+      "Integration tests"
+    ]
+  },
+  "constraints": [
+    "Follow RESTful conventions",
+    "Include proper error handling",
+    "Add input validation",
+    "Implement pagination for list endpoints",
+    "Write comprehensive tests"
+  ],
+  "success_criteria": {
+    "code_quality": "Clean, well-documented code",
+    "test_coverage": "Minimum 80% coverage",
+    "functionality": "All endpoints working correctly",
+    "documentation": "Complete API documentation"
+  },
+  "notes": "This is a sample task.json showing the detailed structure for complex tasks. Simpler tasks may only need task_id and description."
+}

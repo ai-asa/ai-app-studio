@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+# This is the Python replacement for the original bash busctl script
+# Original bash version has been backed up as busctl.bash
+
+import subprocess
+import sys
+import os
+
+# Simply delegate to the Python implementation
+script_dir = os.path.dirname(os.path.abspath(__file__))
+py_script = os.path.join(script_dir, 'busctl.py')
+
+# Pass all arguments through
+result = subprocess.run([sys.executable, py_script] + sys.argv[1:])
+sys.exit(result.returncode)

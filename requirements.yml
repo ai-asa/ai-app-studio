@@ -1,0 +1,52 @@
+# AIエージェントオーケストレーション - サンプル要件定義書
+
+project_name: "Demo Web Application"
+description: "展示会デモ用のサンプルWebアプリケーション"
+
+# タスクリスト
+# 各タスクは独立して実行可能な作業単位
+tasks:
+  - id: T001
+    name: "Create hello.txt"
+    description: "Simple text file creation task"
+    goal: "Create a hello.txt file with greeting message"
+    priority: high
+    estimated_time: "1 min"
+    
+  - id: T002
+    name: "Create Python script"  
+    description: "Create a simple Python calculator script"
+    goal: "Create calculator.py with basic arithmetic functions"
+    priority: medium
+    estimated_time: "3 min"
+    
+  - id: T003
+    name: "Create README"
+    description: "Create project documentation"
+    goal: "Create README.md with project overview and usage instructions"
+    priority: low
+    estimated_time: "2 min"
+
+# オプション: 詳細な指示（各タスクのwork/ディレクトリにtask.jsonとして配置可能）
+detailed_instructions:
+  T001:
+    content: |
+      Create a file named hello.txt with the following content:
+      - Greeting message
+      - Current timestamp
+      - Task completion note
+      
+  T002:
+    requirements:
+      - Add function: add(a, b)
+      - Subtract function: subtract(a, b)
+      - Multiply function: multiply(a, b)
+      - Divide function: divide(a, b) with zero division check
+      - Main function with example usage
+      
+  T003:
+    sections:
+      - Project Overview
+      - Installation Instructions
+      - Usage Examples
+      - Contributing Guidelines
