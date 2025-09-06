@@ -1212,3 +1212,100 @@ busctl spawn --from-breakdown
 #### 4. 動作確認
 - ✅ テストスクリプトで修正を検証
 - ✅ 実際にルートユニットから子ユニットが正しく生成されることを確認
+
+---
+
+## Phase 3: Web クライアント実装
+
+### 1. プロジェクト構造の作成
+- [ ] `/web-client/` ディレクトリ作成
+- [ ] `/web-client/backend/` 構造作成
+- [ ] `/web-client/frontend/` 構造作成
+- [ ] `requirements.txt` (FastAPI, websockets, watchdog)
+- [ ] `package.json` (React, WebSocket)
+
+### 2. バックエンド実装（FastAPI）
+#### 2.1 基本セットアップ
+- [ ] `main.py` - FastAPIアプリケーション基本構造
+- [ ] CORS設定（フロントエンドからのアクセス許可）
+- [ ] 静的ファイル配信設定
+
+#### 2.2 データモデル
+- [ ] `models.py` - Taskモデル定義
+  - [ ] TaskStatus enum (pending, completed, error)
+  - [ ] Task dataclass (id, status, children, message)
+  - [ ] TaskHierarchy モデル
+
+#### 2.3 API実装
+- [ ] `GET /api/tasks` - タスク階層取得
+  - [ ] tasks.jsonの読み込み
+  - [ ] 各worktreeからchildren情報取得
+  - [ ] 階層構造の構築
+- [ ] `GET /api/logs/{task_id}` - ログ取得
+  - [ ] logs/raw/{task_id}.rawの読み込み
+  - [ ] 末尾N行のみ返す機能
+  - [ ] ファイルが存在しない場合の処理
+
+#### 2.4 WebSocket実装
+- [ ] WebSocketエンドポイント `/ws`
+- [ ] クライアント管理（接続/切断）
+- [ ] メッセージブロードキャスト機能
+
+#### 2.5 ファイル監視
+- [ ] `monitor.py` - watchdogでのファイル監視
+  - [ ] bus.jsonl監視 → task_updateイベント
+  - [ ] tasks.json監視 → task_addedイベント
+  - [ ] 変更をWebSocketで通知
+
+### 3. フロントエンド実装（React）
+#### 3.1 基本セットアップ
+- [ ] `index.html` - 基本HTML構造
+- [ ] `app.js` - Reactアプリケーション
+- [ ] `style.css` - 最小限のスタイル（Tailwind CDN）
+
+#### 3.2 コンポーネント実装
+- [ ] `App` - メインコンポーネント
+  - [ ] タスク階層の状態管理
+  - [ ] 選択中のタスクID管理
+- [ ] `TaskTree` - タスク階層表示
+  - [ ] インデント表示
+  - [ ] ステータスアイコン（⏳✅❌）
+  - [ ] クリックイベント処理
+- [ ] `LogViewer` - ログ表示
+  - [ ] 選択されたタスクのログ表示
+  - [ ] 自動スクロール
+  - [ ] リアルタイム更新
+
+#### 3.3 WebSocket統合
+- [ ] WebSocket接続管理
+- [ ] 再接続処理
+- [ ] メッセージ受信時の状態更新
+  - [ ] task_updateの処理
+  - [ ] task_addedの処理
+
+### 4. 統合テスト
+- [ ] バックエンド単体テスト
+  - [ ] API エンドポイントテスト
+  - [ ] WebSocket接続テスト
+- [ ] フロントエンド動作確認
+  - [ ] 初期表示
+  - [ ] クリック動作
+  - [ ] リアルタイム更新
+- [ ] E2Eテスト
+  - [ ] busdと連携した動作確認
+  - [ ] 実際のタスク実行時の表示確認
+
+### 5. ドキュメント・デプロイ
+- [ ] `web-client/README.md` 作成
+  - [ ] セットアップ手順
+  - [ ] 使用方法
+- [ ] 起動スクリプト作成
+  - [ ] バックエンド起動
+  - [ ] フロントエンド起動
+- [ ] systemdサービス定義（オプション）
+
+### 実装優先度
+1. **Phase 1**: バックエンドAPI基本実装（タスク取得、ログ取得）
+2. **Phase 2**: フロントエンド基本表示（静的な階層表示）
+3. **Phase 3**: WebSocketによるリアルタイム更新
+4. **Phase 4**: UI改善とエラーハンドリング

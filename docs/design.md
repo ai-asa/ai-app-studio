@@ -414,3 +414,156 @@ feat/root-api-users-crud    # CRUD実装（親: root-api-users）
 3. **エラー処理**: 想定外の状況への対応力は限定的
 
 継続的な改善とフィードバックが必要です。
+
+---
+
+## 10. Web クライアント設計
+
+### 10.1 概要
+
+AI App Studioの実行状況をリアルタイムで可視化するWebベースのモニタリングツール。
+タスクの階層構造と実行状態を直感的に表示し、各タスクの詳細ログを確認できる。
+
+### 10.2 設計方針
+
+- **最小限の実装**: 必要最低限の機能に絞り、シンプルに保つ
+- **リアルタイム性**: WebSocketを使用して即座に状態を反映
+- **直感的なUI**: クリックでログ表示、色でステータスを識別
+
+### 10.3 アーキテクチャ
+
+#### バックエンド構成
+```
+web-client/backend/
+├── main.py        # FastAPIアプリケーション
+├── monitor.py     # ファイル監視とイベント送信
+└── models.py      # データモデル定義
+```
+
+- **FastAPI**: 高速で軽量なWebフレームワーク
+- **WebSocket**: リアルタイム通信
+- **watchdog**: ファイル変更監視
+
+#### フロントエンド構成
+```
+web-client/frontend/
+├── index.html     # メインHTML
+├── app.js         # Reactアプリケーション
+└── style.css      # 最小限のスタイリング
+```
+
+- **React**: シンプルな状態管理とコンポーネント化
+- **WebSocket Client**: サーバーとのリアルタイム通信
+- **Tailwind CSS**: ユーティリティファーストのCSS
+
+### 10.4 データフロー
+
+1. **初期データ取得**
+   - `/api/tasks`でタスク階層を取得
+   - 各タスクのworktreeから階層情報を構築
+
+2. **リアルタイム更新**
+   - `bus.jsonl`の変更を監視
+   - `tasks.json`の変更を監視
+   - 変更があればWebSocketで通知
+
+3. **ログ表示**
+   - タスククリック時に`/api/logs/{task_id}`でログ取得
+   - `logs/raw/{task_id}.raw`から読み込み
+
+### 10.5 API仕様
+
+#### REST API
+
+```http
+GET /api/tasks
+Response:
+{
+  "root": {
+    "id": "root",
+    "status": "pending",
+    "children": ["root-frontend", "root-backend", "root-infrastructure"]
+  },
+  "root-frontend": {
+    "id": "root-frontend",
+    "status": "completed",
+    "children": []
+  },
+  ...
+}
+
+GET /api/logs/{task_id}
+Response:
+{
+  "task_id": "root-backend",
+  "content": "Building backend API...\nError: Module not found...",
+  "last_updated": "2025-01-10T10:30:00Z"
+}
+```
+
+#### WebSocket メッセージ
+
+```json
+// タスク状態更新
+{
+  "type": "task_update",
+  "task_id": "root-backend",
+  "status": "error",
+  "message": "Build failed"
+}
+
+// 新規タスク追加
+{
+  "type": "task_added",
+  "task_id": "root-auth",
+  "parent_id": "root"
+}
+```
+
+### 10.6 UI設計
+
+#### レイアウト
+```
+┌─────────────────────────────────────────────┐
+│ AI App Studio Monitor            [自動更新] │
+├─────────────────────────────────────────────┤
+│                                             │
+│ root ⏳                                     │
+│ ├─ root-frontend ✅ Frontend completed      │
+│ ├─ root-backend ❌ Build failed            │
+│ └─ root-infrastructure ⏳                   │
+│                                             │
+├─────────────────────────────────────────────┤
+│ ▼ root-backend のログ                       │
+│ Building backend API...                     │
+│ Installing dependencies...                  │
+│ Error: Module 'express' not found           │
+│ ...                                         │
+└─────────────────────────────────────────────┘
+```
+
+#### ステータス表示
+- ⏳ **実行中** (pending): タスクが進行中
+- ✅ **完了** (completed): 正常終了
+- ❌ **エラー** (error): エラーで終了
+
+### 10.7 実装の注意点
+
+1. **状態の整合性**
+   - `tasks.json`と`bus.jsonl`の情報を統合
+   - 各worktreeの`children-status.yml`も参照
+
+2. **パフォーマンス**
+   - ログファイルは大きくなる可能性があるため、末尾のみ取得
+   - WebSocketメッセージは必要最小限に
+
+3. **エラーハンドリング**
+   - ファイルが存在しない場合の処理
+   - WebSocket切断時の再接続
+
+### 10.8 将来の拡張
+
+- タスクの手動制御（停止、再実行）
+- ログのフィルタリング・検索
+- 実行時間の統計表示
+- エラーの集約表示
