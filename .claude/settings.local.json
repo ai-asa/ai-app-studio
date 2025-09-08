@@ -116,7 +116,23 @@
       "Bash(for test in tests/unit/test_busd*.py)",
       "Bash(do echo \"=== Running $test ===\")",
       "Bash(done)",
-      "Bash(python -m pytest tests/unit/test_busctl_from_breakdown.py -v)"
+      "Bash(python -m pytest tests/unit/test_busctl_from_breakdown.py -v)",
+      "Bash(pip3 list:*)",
+      "Bash(PYTHONPATH=$PWD python3 -m pytest tests/test_models.py -v)",
+      "Bash(PYTHONPATH=$PWD python3 -m pytest:*)",
+      "Bash(python -m pytest web-client/tests/test_websocket.py -xvs)",
+      "Bash(python -m pytest tests/test_websocket.py -xvs)",
+      "Bash(python -m pytest tests/test_websocket.py::TestWebSocket::test_websocket_connection tests/test_websocket.py::TestWebSocket::test_websocket_receives_task_update -xvs)",
+      "Bash(python -m pytest tests/test_monitor.py -xvs)",
+      "Bash(PYTHONPATH=/Users/asaokazuki/Desktop/repo/tools/ai-app-studio/web-client python -m pytest /Users/asaokazuki/Desktop/repo/tools/ai-app-studio/web-client/tests/test_monitor.py -xvs)",
+      "Bash(PYTHONPATH=/Users/asaokazuki/Desktop/repo/tools/ai-app-studio/web-client python -m pytest /Users/asaokazuki/Desktop/repo/tools/ai-app-studio/web-client/tests/test_monitor.py::TestFileMonitor::test_file_watch_with_broadcast -xvs)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(git --version)",
+      "Bash(brew:*)",
+      "Bash(HOMEBREW_NO_AUTO_UPDATE=1 brew install tmux)",
+      "Bash(/usr/bin/which:*)",
+      "Bash(python3 -c \"import watchdog\")"
     ],
     "deny": []
   }
